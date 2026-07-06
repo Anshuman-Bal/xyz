@@ -1,0 +1,77 @@
+target_agent:
+  endpoint: "http://localhost:8001/assess"
+  system_prompt_file: "_prompt.txt"
+  agent_id: "agent-1"
+  tools:
+    # - name: "get_credit_history"
+    #   description: "Fetches historical payment data and credit score for a customer."
+    # - name: "rag_financial_docs"
+    #   description: "Searches uploaded PDF documents (bank statements, payslips) for financial evidence."
+    # - name: "calculate_dti"
+    #   description: "Calculates the Debt-to-Income ratio given income and debt amounts."
+
+attack_library:
+  directory: "attack_library"
+
+campaign_settings:
+  mutation:
+    enabled: false
+    modes:
+      lexical_rephrase: true
+      indirect_framing: true
+      politeness_masking: false
+      compliance_wrapping: false
+      goal_abstraction_shift: false
+      contextual_embedding: false
+
+  chaining:
+    enabled: true
+
+attack_selection:
+  categories:
+    AUTONOMOUS_AGENT_OVERREACH:
+      enabled: true
+      subcategories: 1
+      techniques: 2
+      # techniques can be either:
+      # 1) all
+      # 2) an integer (applies to every selected sub-category)
+      # 3) a per-sub-category map, for example:
+      # techniques:
+      #   default: 2
+      #   AA-GD: 1
+
+    DATA_LEAKAGE:
+      enabled: false
+      subcategories: all
+      techniques: all
+
+    GOVERNANCE_AND_COMPLIANCE_GAP:
+      enabled: false
+      subcategories: all
+      techniques: all
+
+    MEMORY_AND_CONTEXT_EXPLOITS:
+      enabled: false
+      subcategories: all
+      techniques: all
+
+    MODEL_HALLUCINATION:
+      enabled: false
+      subcategories: all
+      techniques: all
+
+    PROMPT_INJECTION:
+      enabled: false
+      subcategories: all
+      techniques: all
+
+    SUPPLY_CHAIN_VULNERABILITY:
+      enabled: false
+      subcategories: all
+      techniques: all
+
+    TOOL_MISUSE_AND_ABUSE:
+      enabled: false
+      subcategories: all
+      techniques: all

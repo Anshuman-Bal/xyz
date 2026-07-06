@@ -1,0 +1,24 @@
+1. start the agent server
+
+credit-agent-> python server.py (port 8001)
+for ngrok do this after the above: credit-agent-> ngrok http 8001
+
+2. run python s3_prompt_service.py
+
+go to postman or swagger UI docs
+under run method, send the request below
+
+request:
+{
+  "source_bucket": "qa-opentelemetry",
+  "source_object_key": "artifacts/2026/03/16/e7f1702ba3ee56e36e0306de40f095e2_llm_prompt.json",
+  "prompt_json_key": "prompt",
+  "destination_bucket": "qa-opentelemetry",
+  "destination_key": "agent-red-teaming/processed_results/agent-1/",
+  "databricks_volume_path": "/Volumes/vistora_db/vistora_schema/agent_red_teaming"
+}
+
+3. prompt will be fetched from S3 and stored in _prompt.txt
+4. db file created locally
+5. red teaming campaign starts
+6. result will be stored in db and S3 (s3://qa-opentelemetry/agent-red-teaming/processed_results/agent-1/4b430f83-dd6b-4a5b-a641-0fcbbb081f31.json)

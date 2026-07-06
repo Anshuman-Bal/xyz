@@ -1,0 +1,73 @@
+##############################################################################
+#############     Storage Path Parameters for all Platforms     ##############
+##############################################################################
+
+
+toggle:
+  useCloud: azure
+ 
+ 
+storagePathParams:
+  bedRockCustomDiscovery:
+    secretName: grafyn-storage-bedrock
+    s3:
+      - s3_access_key_id
+      - s3_secret_access_key
+      - s3_bucket =  "qa-grafyn.ai"
+
+    azureBlob:
+      - storage-account
+      - storage-key
+      - azure-blob-path="qa-grafyn"
+
+  sddDetection:
+    secretName: grafyn-storage-sdd
+    s3:
+      - s3_access_key_id
+      - s3_secret_access_key
+      - s3_bucket
+    azureBlob:
+      - storage-account
+      - storage-key
+      - blob-container
+
+  performanceMonitoring:
+    secretName: grafyn-storage-pm
+    s3:
+      - s3_access_key_id
+      - s3_secret_access_key
+      - s3_bucket
+      - llm_api_key
+      - llm_url
+      - groq-api-key
+    azureBlob:
+      - storage-account
+      - storage-key
+      - blob-container
+      - llm-api-key
+      - llm-url
+      - groq-api-key
+      
+
+  vectordbPoisoning:
+    secretName: grafyn-storage-secret
+    s3:
+      - s3_access_key_id
+      - s3_secret_access_key
+      - s3_bucket = "qa-grafyn.ai"
+    azureBlob:
+      - blob-storage-account
+      - blob-storage-key
+      - azure-blob-path = "qa-grafyn" 
+
+  opensearchAnomalyDetection:
+    secretName: grafyn-storage-secret
+    s3:
+      - s3_access_key_id
+      - s3_secret_access_key
+      - region = "us-west-1"
+      - s3_bucket = "qa-grafyn.ai"
+    azureBlob:
+      - blob-storage-account
+      - blob-storage-key
+      - azure-blob-path = "qa-grafyn"
