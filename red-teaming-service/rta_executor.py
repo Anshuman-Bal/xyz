@@ -4,11 +4,11 @@ import json
 import os
 from typing import Dict, Any, List
 from dotenv import load_dotenv
-from langchain_groq import ChatGroq
+
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 
-from rta_brain import RedTeamBrain
+from rta_brain import RedTeamBrain, CustomAzureMLChatModel
 
 load_dotenv()
 
@@ -18,10 +18,10 @@ class RedTeamExecutor:
             "attack_definitions": [],
             "attack_runs": []
         }
-        self.judge_llm = ChatGroq(
-            model="llama-3.3-70b-versatile", # Using a standard model for the judge
-            temperature=0.1,  # Low temp for strict judging
-            api_key=os.getenv("GROQ_API_KEY")
+        endpoint = "https://llama3-8b-endpoint.eastus.inference.ml.azure.com/score"
+        self.judge_llm = CustomAzureMLChatModel(
+            api_key=os.getenv("AZURE_ML_API_KEY", ""),
+            endpoint_url=os.getenv("AZURE_ML_ENDPOINT_URL", endpoint),
         )
 
     def _construct_payload(self, customer_id: str, malicious_payload: str) -> dict:

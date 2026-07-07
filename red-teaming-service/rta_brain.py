@@ -8,7 +8,78 @@ import yaml
 from dotenv import load_dotenv
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
-from langchain_groq import ChatGroq
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import BaseMessage, AIMessage
+from langchain_core.outputs import ChatResult, ChatGeneration
+import requests
+
+class CustomAzureMLChatModel(BaseChatModel):
+    endpoint_url: str
+    api_key: str
+    model_name: str = "llama-3-8b"
+    
+    @property
+    def _llm_type(self) -> str:
+        return "azureml-custom"
+
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[Any] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        formatted_messages = []
+        for m in messages:
+            if m.type == "human":
+                role = "user"
+            elif m.type == "ai":
+                role = "assistant"
+            elif m.type == "system":
+                role = "system"
+            else:
+                role = "user"
+            formatted_messages.append({"role": role, "content": m.content})
+            
+        payload = {
+            "messages": formatted_messages,
+            "max_tokens": kwargs.get("max_tokens", 2048),
+            "temperature": kwargs.get("temperature", 0.7),
+        }
+        
+        try:
+            response = requests.post(self.endpoint_url, headers=headers, json=payload)
+            if response.status_code >= 400:
+                # Fallback to Azure ML input_data format
+                payload2 = {
+                    "input_data": {
+                        "input_string": formatted_messages,
+                        "parameters": {"max_new_tokens": kwargs.get("max_tokens", 2048), "temperature": kwargs.get("temperature", 0.7)}
+                    }
+                }
+                response = requests.post(self.endpoint_url, headers=headers, json=payload2)
+                
+            if response.status_code >= 400:
+                raise RuntimeError(f"Azure ML Endpoint returned {response.status_code}: {response.text}")
+                
+            response.raise_for_status()
+            data = response.json()
+            
+            if "choices" in data:
+                content = data["choices"][0]["message"]["content"]
+            elif "output" in data:
+                content = data["output"]
+            else:
+                content = str(data)
+                
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
+        except Exception as e:
+            raise RuntimeError(f"Error calling Azure ML Endpoint: {e}")
 
 load_dotenv()
 
@@ -19,10 +90,12 @@ class RedTeamBrain:
         self.config = config
 
         # 2. Initialize the LLM
-        self.llm = ChatGroq(
-            model="llama-3.3-70b-versatile",
-            temperature=0.7,
-            api_key=os.getenv("GROQ_API_KEY"),
+        # Using a custom wrapper to natively support the Azure ML /score endpoint 
+        # without LangChain OpenAI SDK appending /chat/completions to it.
+        endpoint = "https://llama3-8b-endpoint.eastus.inference.ml.azure.com/score"
+        self.llm = CustomAzureMLChatModel(
+            api_key=os.getenv("AZURE_ML_API_KEY", ""),
+            endpoint_url=os.getenv("AZURE_ML_ENDPOINT_URL", endpoint),
         )
 
         # 3. Store target agent context
