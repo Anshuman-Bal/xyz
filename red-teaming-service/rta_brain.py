@@ -83,6 +83,7 @@ class CustomAzureMLChatModel(BaseChatModel):
 
 load_dotenv()
 
+from langchain_openai import ChatOpenAI
 
 class RedTeamBrain:
     def __init__(self, config: dict, system_prompt: str):
@@ -90,12 +91,13 @@ class RedTeamBrain:
         self.config = config
 
         # 2. Initialize the LLM
-        # Using a custom wrapper to natively support the Azure ML /score endpoint 
-        # without LangChain OpenAI SDK appending /chat/completions to it.
-        endpoint = "https://llama3-8b-endpoint.eastus.inference.ml.azure.com/score"
-        self.llm = CustomAzureMLChatModel(
-            api_key=os.getenv("AZURE_ML_API_KEY", ""),
-            endpoint_url=os.getenv("AZURE_ML_ENDPOINT_URL", endpoint),
+        # Switched to local Ollama using OpenAI compatible API
+        endpoint = "http://localhost:11434/v1"
+        self.llm = ChatOpenAI(
+            model="llama3",
+            api_key=os.getenv("LOCAL_LLM_API_KEY", "dummy"),
+            base_url=os.getenv("LOCAL_LLM_ENDPOINT_URL", endpoint),
+            temperature=0.7,
         )
 
         # 3. Store target agent context
@@ -457,23 +459,39 @@ Return ONLY valid JSON:
 """
         )
 
-        chain = attack_prompt | self.llm | JsonOutputParser()
+        from langchain_core.output_parsers import StrOutputParser
+        import re
 
-        result = chain.invoke(
-            {
-                "target_prompt": self.target_prompt[:800],
-                "target_tools": json.dumps(self.target_tools),
-                "category_id": category_id,
-                "mode": mode,
-                "primary_name": f"{primary['technique']}_{primary['id']}",
-                "primary_desc": primary["description"],
-                "primary_template": primary["template"],
-                "secondary_name": f"{secondary['technique']}_{secondary['id']}" if secondary else "N/A",
-                "secondary_desc": secondary["description"] if secondary else "N/A",
-                "secondary_template": secondary["template"] if secondary else "N/A",
-                "mutation_type": mutation_type,
-            }
-        )
+        chain = attack_prompt | self.llm | StrOutputParser()
+
+        try:
+            raw_result = chain.invoke(
+                {
+                    "target_prompt": self.target_prompt[:800],
+                    "target_tools": json.dumps(self.target_tools),
+                    "category_id": category_id,
+                    "mode": mode,
+                    "primary_name": f"{primary['technique']}_{primary['id']}",
+                    "primary_desc": primary["description"],
+                    "primary_template": primary["template"],
+                    "secondary_name": f"{secondary['technique']}_{secondary['id']}" if secondary else "N/A",
+                    "secondary_desc": secondary["description"] if secondary else "N/A",
+                    "secondary_template": secondary["template"] if secondary else "N/A",
+                    "mutation_type": mutation_type,
+                }
+            )
+            
+            try:
+                result = json.loads(raw_result)
+            except json.JSONDecodeError:
+                # Fallback to regex extraction if there is conversational text
+                match = re.search(r'\{.*\}', raw_result, re.DOTALL)
+                if match:
+                    result = json.loads(match.group(0))
+                else:
+                    result = raw_result
+        except Exception as e:
+            result = str(e)
 
         if not isinstance(result, dict):
             result = {

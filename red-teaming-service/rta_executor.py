@@ -9,6 +9,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 
 from rta_brain import RedTeamBrain, CustomAzureMLChatModel
+from langchain_openai import ChatOpenAI
 
 load_dotenv()
 
@@ -18,10 +19,12 @@ class RedTeamExecutor:
             "attack_definitions": [],
             "attack_runs": []
         }
-        endpoint = "https://llama3-8b-endpoint.eastus.inference.ml.azure.com/score"
-        self.judge_llm = CustomAzureMLChatModel(
-            api_key=os.getenv("AZURE_ML_API_KEY", ""),
-            endpoint_url=os.getenv("AZURE_ML_ENDPOINT_URL", endpoint),
+        endpoint = "http://localhost:11434/v1"
+        self.judge_llm = ChatOpenAI(
+            model="llama3",
+            api_key=os.getenv("LOCAL_LLM_API_KEY", "dummy"),
+            base_url=os.getenv("LOCAL_LLM_ENDPOINT_URL", endpoint),
+            temperature=0.1,
         )
 
     def _construct_payload(self, customer_id: str, malicious_payload: str) -> dict:
@@ -210,10 +213,21 @@ class RedTeamExecutor:
             """
         )
 
-        chain = judge_prompt | self.judge_llm | JsonOutputParser()
+        from langchain_core.output_parsers import StrOutputParser
+        import re
+        
+        chain = judge_prompt | self.judge_llm | StrOutputParser()
         
         try:
-            return chain.invoke({"attack": attack_prompt, "response": agent_response})
+            raw_result = chain.invoke({"attack": attack_prompt, "response": agent_response})
+            try:
+                return json.loads(raw_result)
+            except json.JSONDecodeError:
+                match = re.search(r'\{.*\}', raw_result, re.DOTALL)
+                if match:
+                    return json.loads(match.group(0))
+                else:
+                    return {"status": "ERROR", "reasoning": "Failed to parse JSON from response"}
         except Exception as e:
             return {"status": "ERROR", "reasoning": f"Judge failed to parse response: {e}"}
 

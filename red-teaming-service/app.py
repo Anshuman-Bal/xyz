@@ -1,8 +1,11 @@
 import uuid
 import logging
-from typing import Dict, Any, Optional
+import os
+import yaml
+from typing import Dict, Any, Optional, List
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from rta_brain import RedTeamBrain
@@ -22,7 +25,7 @@ app = FastAPI(
 class RedTeamRequest(BaseModel):
     target_endpoint: str = Field(..., description="The HTTP endpoint of the victim agent to attack.")
     system_prompt: str = Field(..., description="The system prompt of the victim agent.")
-    attack_selection: Dict[str, Any] = Field(..., description="Config matching the attack_selection block from YAML.")
+    attack_selection: List[str] = Field(..., description="List of attack categories to perform.")
     
     # Optional overrides for advanced usage
     campaign_settings: Optional[Dict[str, Any]] = Field(
@@ -33,18 +36,15 @@ class RedTeamRequest(BaseModel):
         description="Optional mutation and chaining settings."
     )
 
-class RedTeamResponse(BaseModel):
-    message: str
-    run_id: str
-    total_attack_definitions: int
-    total_attack_runs: int
-    status_summary: dict
-    attack_definitions: list
-    attack_runs: list
+class GenericHttpResponse(BaseModel):
+    status: str = Field(..., description="Success or Failed", example="SUCCESS")
+    message: str = Field(..., description="Message")
+    data: Optional[Any] = Field(default=None, description="JSON Output")
+    additionalData: Optional[Any] = Field(default=None, description="Additional Data")
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
-@app.post("/run-campaign", response_model=RedTeamResponse)
+@app.post("/run-campaign", response_model=GenericHttpResponse)
 def run_campaign(req: RedTeamRequest):
     """
     Run an end-to-end red teaming campaign statelessly.
@@ -55,6 +55,22 @@ def run_campaign(req: RedTeamRequest):
         logger.info(f"Starting Red Team Campaign {run_id} targeting {req.target_endpoint}")
 
         # Construct the config dictionary that rta_brain expects
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rta_config.yaml")
+        yaml_categories = {}
+        if os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8") as f:
+                yaml_config = yaml.safe_load(f) or {}
+                yaml_categories = yaml_config.get("attack_selection", {}).get("categories", {})
+
+        selected_categories = {}
+        for category in req.attack_selection:
+            if category in yaml_categories:
+                cat_config = yaml_categories[category].copy()
+                cat_config["enabled"] = True
+                selected_categories[category] = cat_config
+            else:
+                selected_categories[category] = {"enabled": True}
+
         config = {
             "target_agent": {
                 "endpoint": req.target_endpoint,
@@ -66,7 +82,7 @@ def run_campaign(req: RedTeamRequest):
             },
             "campaign_settings": req.campaign_settings,
             "attack_selection": {
-                "categories": req.attack_selection
+                "categories": selected_categories
             }
         }
 
@@ -94,19 +110,30 @@ def run_campaign(req: RedTeamRequest):
 
         logger.info(f"Campaign {run_id} finished successfully.")
 
-        return RedTeamResponse(
-            message="Campaign finished.",
-            run_id=run_id,
-            total_attack_definitions=len(results.get("attack_definitions", [])),
-            total_attack_runs=len(results.get("attack_runs", [])),
-            status_summary=status_counts,
-            attack_definitions=results.get("attack_definitions", []),
-            attack_runs=results.get("attack_runs", [])
+        return GenericHttpResponse(
+            status="SUCCESS",
+            message="Campaign finished successfully.",
+            data={
+                "run_id": run_id,
+                "total_attack_definitions": len(results.get("attack_definitions", [])),
+                "total_attack_runs": len(results.get("attack_runs", [])),
+                "status_summary": status_counts,
+                "attack_definitions": results.get("attack_definitions", []),
+                "attack_runs": results.get("attack_runs", [])
+            }
         )
 
     except Exception as e:
         logger.error(f"Error during campaign execution: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "FAILED",
+                "message": str(e),
+                "data": None,
+                "additionalData": None
+            }
+        )
 
 if __name__ == "__main__":
     import uvicorn
