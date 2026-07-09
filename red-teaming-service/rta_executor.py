@@ -19,11 +19,10 @@ class RedTeamExecutor:
             "attack_definitions": [],
             "attack_runs": []
         }
-        endpoint = "http://localhost:11434/v1"
-        self.judge_llm = ChatOpenAI(
-            model="llama3",
-            api_key=os.getenv("LOCAL_LLM_API_KEY", "dummy"),
-            base_url=os.getenv("LOCAL_LLM_ENDPOINT_URL", endpoint),
+        self.judge_llm = CustomAzureMLChatModel(
+            endpoint_url=os.getenv("AZURE_ML_ENDPOINT_URL", "https://llama3-8b-endpoint.eastus.inference.ml.azure.com/score"),
+            api_key=os.getenv("AZURE_ML_API_KEY", ""),
+            model_name="llama3-8b-endpoint",
             temperature=0.1,
         )
 
