@@ -3,15 +3,21 @@
 ##############################################################################
 
 toggle:
-  useCloud: aws
+  useCloud: azure
  
 storagePathParams:
   redTeaming:
-    secretName: grafyn-storage-redteam
+    secretName: grafyn-storage-secret
     s3:
       - s3_access_key_id
       - s3_secret_access_key
       - region = "us-east-1"
+      - location = "grafyn-redteam-bucket"
     azureBlob:
-      - storage-account
-      - storage-key
+      - blob-storage-account
+      - blob-storage-key
+      - location = "qa-grafyn"
+      - path_prefix = "results/"
+
+
+      

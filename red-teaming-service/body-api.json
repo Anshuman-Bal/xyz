@@ -4,5 +4,6 @@
     "attack_selection": [
         "AUTONOMOUS_AGENT_OVERREACH",
         "PROMPT_INJECTION"
-    ]
+    ],
+    "telemetry_id": "test-telemetry-123"
 }

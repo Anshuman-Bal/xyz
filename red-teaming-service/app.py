@@ -4,12 +4,14 @@ import os
 import yaml
 from typing import Dict, Any, Optional, List
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from rta_brain import RedTeamBrain
 from rta_executor import RedTeamExecutor
+from secret_manager import resolve_storage_credentials, CLOUD_PROVIDER
+from storage_utils import get_storage_backend
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("red_teaming_api")
@@ -26,6 +28,7 @@ class RedTeamRequest(BaseModel):
     target_endpoint: str = Field(..., description="The HTTP endpoint of the victim agent to attack.")
     system_prompt: str = Field(..., description="The system prompt of the victim agent.")
     attack_selection: List[str] = Field(..., description="List of attack categories to perform.")
+    telemetry_id: str = Field(..., description="Telemetry ID used to store final results.")
     
     # Optional overrides for advanced usage
     campaign_settings: Optional[Dict[str, Any]] = Field(
@@ -44,16 +47,8 @@ class GenericHttpResponse(BaseModel):
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
-@app.post("/run-campaign", response_model=GenericHttpResponse)
-def run_campaign(req: RedTeamRequest):
-    """
-    Run an end-to-end red teaming campaign statelessly.
-    The attacks are generated, executed, and evaluated in-memory.
-    """
+def _run_campaign_background(req: RedTeamRequest, run_id: str):
     try:
-        run_id = str(uuid.uuid4())
-        logger.info(f"Starting Red Team Campaign {run_id} targeting {req.target_endpoint}")
-
         # Construct the config dictionary that rta_brain expects
         config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rta_config.yaml")
         yaml_categories = {}
@@ -90,41 +85,76 @@ def run_campaign(req: RedTeamRequest):
         brain = RedTeamBrain(config=config, system_prompt=req.system_prompt)
         executor = RedTeamExecutor()
 
-        # Run campaign
-        # (This runs synchronously, but since it's a test/PoC service, that's fine. 
-        # For full async, we would use await asyncio.to_thread(executor.run_full_test_plan, brain))
         results = executor.run_full_test_plan(brain)
+        
+        # Save to storage
+        try:
+            storage_creds = resolve_storage_credentials("redTeaming")
+            location = storage_creds.get("location")
+            if not location:
+                raise ValueError("Storage location not found in application.yaml")
 
-        # Build summary
-        status_counts = {}
-        for run in results.get("attack_runs", []):
-            category = run.get("category", "UNKNOWN_CATEGORY")
-            status = run.get("result_status", "UNKNOWN_STATUS")
+            backend = None
+            if CLOUD_PROVIDER == "aws":
+                backend = get_storage_backend(
+                    cloud_provider="aws",
+                    container_name=location,
+                    region=storage_creds.get("region"),
+                    aws_access_key_id=storage_creds.get("s3_access_key_id"),
+                    aws_secret_access_key=storage_creds.get("s3_secret_access_key")
+                )
+            elif CLOUD_PROVIDER == "azure":
+                backend = get_storage_backend(
+                    cloud_provider="azure",
+                    container_name=location,
+                    account_name=storage_creds.get("blob-storage-account"),
+                    account_key=storage_creds.get("blob-storage-key")
+                )
             
-            if category not in status_counts:
-                status_counts[category] = {"VULNERABLE": 0, "SAFE": 0, "ERROR": 0}
-            if status in status_counts[category]:
-                status_counts[category][status] += 1
+            if backend:
+                path_prefix = storage_creds.get("path_prefix", "").strip("/")
+                if path_prefix:
+                    key = f"{path_prefix}/{req.telemetry_id}.json"
+                else:
+                    key = f"{req.telemetry_id}.json"
+                    
+                backend.upload_json(results, key)
+                logger.info(f"Results saved to {CLOUD_PROVIDER} at {key}")
             else:
-                status_counts[category][status] = 1
+                logger.warning("No backend configured to save results.")
+                
+        except Exception as storage_ex:
+            logger.error(f"Failed to save results to storage: {storage_ex}")
 
         logger.info(f"Campaign {run_id} finished successfully.")
 
+    except Exception as e:
+        logger.error(f"Error during campaign execution: {e}", exc_info=True)
+
+
+@app.post("/run-campaign", response_model=GenericHttpResponse)
+def run_campaign(req: RedTeamRequest, background_tasks: BackgroundTasks):
+    """
+    Run an end-to-end red teaming campaign statelessly.
+    The attacks are generated, executed, and evaluated in the background.
+    """
+    try:
+        run_id = str(uuid.uuid4())
+        logger.info(f"Starting Red Team Campaign {run_id} targeting {req.target_endpoint}")
+
+        background_tasks.add_task(_run_campaign_background, req, run_id)
+
         return GenericHttpResponse(
             status="SUCCESS",
-            message="Campaign finished successfully.",
+            message="Red teaming started",
             data={
                 "run_id": run_id,
-                "total_attack_definitions": len(results.get("attack_definitions", [])),
-                "total_attack_runs": len(results.get("attack_runs", [])),
-                "status_summary": status_counts,
-                "attack_definitions": results.get("attack_definitions", []),
-                "attack_runs": results.get("attack_runs", [])
+                "telemetry_id": req.telemetry_id
             }
         )
 
     except Exception as e:
-        logger.error(f"Error during campaign execution: {e}", exc_info=True)
+        logger.error(f"Error initiating campaign: {e}", exc_info=True)
         return JSONResponse(
             status_code=500,
             content={
