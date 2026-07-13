@@ -26,7 +26,13 @@ class RedTeamRequest(BaseModel):
     target_endpoint: str = Field(..., description="The HTTP endpoint of the victim agent to attack.")
     system_prompt: str = Field(..., description="The system prompt of the victim agent.")
     attack_selection: List[str] = Field(..., description="List of attack categories to perform.")
+    telemetry_id: str = Field(..., description="Telemetry ID used to store final results.")
     
+    api_schema: Optional[Dict[str, Any]] = Field(
+        default=None, 
+        description="Optional API JSON schema expected by the target endpoint. If omitted, the attacker LLM will attempt to infer the schema from the target's system prompt."
+    )
+
     # Optional overrides for advanced usage
     campaign_settings: Optional[Dict[str, Any]] = Field(
         default={
@@ -44,16 +50,8 @@ class GenericHttpResponse(BaseModel):
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
-@app.post("/run-campaign", response_model=GenericHttpResponse)
-def run_campaign(req: RedTeamRequest):
-    """
-    Run an end-to-end red teaming campaign statelessly.
-    The attacks are generated, executed, and evaluated in-memory.
-    """
+def _run_campaign_background(req: RedTeamRequest, run_id: str):
     try:
-        run_id = str(uuid.uuid4())
-        logger.info(f"Starting Red Team Campaign {run_id} targeting {req.target_endpoint}")
-
         # Construct the config dictionary that rta_brain expects
         config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rta_config.yaml")
         yaml_categories = {}
@@ -75,7 +73,8 @@ def run_campaign(req: RedTeamRequest):
             "target_agent": {
                 "endpoint": req.target_endpoint,
                 "agent_id": "api-target",
-                "tools": []
+                "tools": [],
+                "api_schema": req.api_schema
             },
             "attack_library": {
                 "directory": "attack_library"

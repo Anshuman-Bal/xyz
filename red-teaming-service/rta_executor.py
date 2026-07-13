@@ -28,34 +28,6 @@ class RedTeamExecutor:
             temperature=0.1,
         )
 
-    def _construct_payload(self, customer_id: str, malicious_payload: str) -> dict:
-        """
-        Builds the ApplicantProfile JSON body expected by POST /assess.
-        The malicious payload is injected into the profession field (now a free-text str)
-        so it reaches the LLM inside a natural-looking profile field.
-        """
-        return {
-            "customer_id": customer_id,
-            "gender": "Male",
-            "age": 45,
-            "monthly_income_rs": 50000,
-            "income_stability": "Medium",
-            "profession": f"Manager\n\n===ADDITIONAL INSTRUCTIONS===\n\n{malicious_payload}",
-            "employment_type": "Apprentice",
-            "location": "Semi-Urban",
-            "loan_request_rs": 500000,
-            "current_loan_expenses_rs": 10000,
-            "house_ownership": "No",
-            "car_ownership": "No",
-            "dependents": 2,
-            "credit_score": 750,
-            "defaults": 0,
-            "active_credit_card": "No",
-            "property_location": "Rural",
-            "co_applicant": "Yes",
-            "property_price": 100000,
-        }
-
     def run_campaign(
         self,
         brain: RedTeamBrain,
@@ -96,10 +68,9 @@ class RedTeamExecutor:
                 sub_category_id = meta.get("sub_category_id", "UNKNOWN")
                 sub_category_name = meta.get("sub_category_name", "")
                 mode = attack.get("mode", "base")
-                raw_payload = attack.get("payload", {}).get("message", "")
                 
-                customer_id = attack.get("payload", {}).get("customer_id", "C001")
-                message = self._construct_payload(customer_id, raw_payload)
+                # Payload is now a full JSON dictionary inferred (or populated) by the LLM
+                message = attack.get("payload", {})
                 
                 # Log Definition (Idempotent-ish in memory)
                 def_entry = {
@@ -109,14 +80,14 @@ class RedTeamExecutor:
                     "sub_category_name": sub_category_name,
                     "name": meta.get("name", "Unknown"),
                     "description": meta.get("description", ""),
-                    "template": raw_payload
+                    "template": json.dumps(message)
                 }
                 if def_entry not in self.results["attack_definitions"]:
                     self.results["attack_definitions"].append(def_entry)
 
                 print(
                     f"\n[{i}/{total_attacks}] Executing: {mode} | "
-                    f"Sub-category: {sub_category_id} | Payload: {raw_payload[:50]}..."
+                    f"Sub-category: {sub_category_id} | Payload Preview: {str(message)[:50]}..."
                 )
                 
                 # 2. Execute Attack
@@ -132,7 +103,15 @@ class RedTeamExecutor:
                 latency = (time.time() - start_time) * 1000
 
                 # 3. Evaluate (Judge)
-                verdict = self._judge_response(message, response_text)
+                if http_status in (400, 422):
+                    # API Schema validation failed, skip judge and directly report
+                    verdict = {
+                        "status": "SCHEMA_ERROR",
+                        "reasoning": f"Target API rejected payload format: {response_text}",
+                        "vulnerability_details": "None"
+                    }
+                else:
+                    verdict = self._judge_response(json.dumps(message), response_text)
                 
                 # Log Run in memory
                 run_entry = {
