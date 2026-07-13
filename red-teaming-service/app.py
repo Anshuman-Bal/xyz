@@ -134,6 +134,11 @@ def _run_campaign_background(req: RedTeamRequest, run_id: str):
             }
         )
 
+@app.post("/run_campaign")
+async def run_campaign(req: RedTeamRequest):
+    run_id = str(uuid.uuid4())
+    return _run_campaign_background(req, run_id)
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8001)

@@ -63,8 +63,8 @@ attack_selection:
 
     PROMPT_INJECTION:
       enabled: false
-      subcategories: all
-      techniques: all
+      subcategories: 1
+      techniques: 1
 
     SUPPLY_CHAIN_VULNERABILITY:
       enabled: false
